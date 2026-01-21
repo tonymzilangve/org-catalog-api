@@ -3,13 +3,13 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "password"
-    POSTGRES_DB: str = "org_db"
+    POSTGRES_SERVER: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_DB: str
     DATABASE_URL: Optional[str] = None
 
-    API_KEY: str = "AIzaSyD9kK8fJxQ4nL3pR7sT2vW1yZ0cB8nM6jK5lP4q7tH"
+    API_KEY: str
     
     class Config:
         env_file = ".env"
