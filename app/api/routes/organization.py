@@ -6,7 +6,7 @@ from app.api.schemas import OrganizationSchema, OrganizationCreate
 from app.core.dependencies import verify_api_key
 from app.db import get_db
 
-from app.db.models import Organization
+from app.db.models import Activity, Building, Organization
 
 router = APIRouter(
     prefix="/orgs",
@@ -16,7 +16,7 @@ router = APIRouter(
 
 
 @router.get("/", response_model=List[OrganizationSchema])
-def read_organizations(
+def list_organizations(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -29,7 +29,7 @@ def read_organizations(
 
 
 @router.get("/{org_id}", response_model=OrganizationSchema)
-def read_organization(org_id: int, db: Session = Depends(get_db)):
+def get_organization(org_id: int, db: Session = Depends(get_db)):
 
     db_org = db.query(Organization).options(
         joinedload(Organization.building),
@@ -61,22 +61,18 @@ def create_organization(
     db: Session = Depends(get_db)
 ):
     try:
-        # return crud.organization.create_organization(db=db, organization=organization)
-
-        # Check if building exists
-        building = db.query(models.Building).filter(models.Building.id == organization.building_id).first()
+        building = db.query(Building).filter(Building.id == organization.building_id).first()
         if not building:
             raise ValueError("Building not found")
         
-        # Check if activities exist
-        activities = db.query(models.Activity).filter(
-            models.Activity.id.in_(organization.activity_ids)
+        activities = db.query(Activity).filter(
+            Activity.id.in_(organization.activity_ids)
         ).all()
         
         if len(activities) != len(organization.activity_ids):
             raise ValueError("One or more activities not found")
         
-        db_organization = models.Organization(
+        db_organization = Organization(
             name=organization.name,
             phone_numbers=organization.phone_numbers,
             building_id=organization.building_id
@@ -85,17 +81,51 @@ def create_organization(
         db.add(db_organization)
         db.commit()
         db.refresh(db_organization)
-        
-        # Add activities
+
         db_organization.activities = activities
         db.commit()
         db.refresh(db_organization)
         
         return db_organization
 
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/building/{building_id}", response_model=List[OrganizationSchema])
+def get_organizations_by_building(building_id: int, db: Session = Depends(get_db)):
+    organizations = db.query(Organization).options(
+        joinedload(Organization.building),
+        joinedload(Organization.activities)
+    ).filter(Organization.building_id == building_id).all()
 
+    return organizations
+
+
+def get_descendant_ids(db: Session, activity_id: int) -> List[int]:
+    activity = db.query(Activity).filter(Activity.id == activity_id).first()
+    if not activity:
+        return []
+    
+    ids = [activity_id]
+    
+    def get_child_ids(parent_id):
+        children = db.query(Activity).filter(Activity.parent_id == parent_id).all()
+        for child in children:
+            ids.append(child.id)
+            get_child_ids(child.id)
+    
+    get_child_ids(activity_id)
+    return ids
+
+@router.get("/activity/{activity_id}", response_model=List[OrganizationSchema])
+def get_organizations_by_activity(activity_id: int, db: Session = Depends(get_db)):
+    
+    descendant_ids = get_descendant_ids(db, activity_id)
+    
+    organizations = db.query(Organization).options(
+        joinedload(Organization.building),
+        joinedload(Organization.activities)
+    ).join(Organization.activities).filter(Activity.id.in_(descendant_ids)).all()
+    
+    return organizations
