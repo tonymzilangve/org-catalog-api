@@ -13,3 +13,7 @@ class Building(BuildingBase):
     
     class Config:
         from_attributes = True
+
+
+class BuildingCreate(BuildingBase):
+    pass
