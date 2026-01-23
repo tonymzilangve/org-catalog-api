@@ -2,8 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Float, Table
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 
-from app.db.database import Base
-
+from app.db import Base
 
 organization_activity = Table(
     'organization_activity',
