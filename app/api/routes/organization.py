@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import joinedload, Session
 from typing import List, Optional
 
-from app.api.schemas import OrganizationSchema, OrganizationCreate
+from app.api.handlers.organisation import OrganizationHandler
+from app.api.schemas import GeoSearch, OrganizationSchema, OrganizationCreate
 from app.core.dependencies import verify_api_key
 from app.db import get_db
 
@@ -118,6 +119,7 @@ def get_descendant_ids(db: Session, activity_id: int) -> List[int]:
     get_child_ids(activity_id)
     return ids
 
+
 @router.get("/activity/{activity_id}", response_model=List[OrganizationSchema])
 def get_organizations_by_activity(activity_id: int, db: Session = Depends(get_db)):
     
@@ -128,4 +130,13 @@ def get_organizations_by_activity(activity_id: int, db: Session = Depends(get_db
         joinedload(Organization.activities)
     ).join(Organization.activities).filter(Activity.id.in_(descendant_ids)).all()
     
+    return organizations
+
+
+@router.post("/search/geo", response_model=List[OrganizationSchema])
+def search_organizations_by_geo(
+    geo_search: GeoSearch,
+    db: Session = Depends(get_db)
+):
+    organizations = OrganizationHandler.search_organizations_by_geo(db, geo_search=geo_search)
     return organizations
