@@ -9,8 +9,10 @@ from .building import (
 )
 
 from .organization import (
+    GeoSearch,
     Organization as OrganizationSchema,
     OrganizationCreate,
+    SearchType
 )
 
 __all__ = [
@@ -18,6 +20,8 @@ __all__ = [
     "ActivitySchema",
     "BuildingCreate",
     "BuildingSchema",
+    "GeoSearch",
     "OrganizationCreate",
-    "OrganizationSchema"
+    "OrganizationSchema",
+    "SearchType"
 ]
