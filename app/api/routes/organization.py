@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import joinedload, Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from typing import List, Optional
 
 from app.api.handlers.organization import OrganizationHandler
@@ -17,25 +19,30 @@ router = APIRouter(
 
 
 @router.get("/", response_model=List[OrganizationSchema])
-def list_organizations(
+async def list_organizations(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    organizations = db.query(Organization).options(
+    stmt = select(Organization).options(
         joinedload(Organization.building),
         joinedload(Organization.activities)
-    ).offset(skip).limit(limit).all()
+    ).offset(skip).limit(limit)
+    
+    result = await db.execute(stmt)
+    organizations = result.unique().scalars().all()
     return organizations
 
 
 @router.get("/{org_id}", response_model=OrganizationSchema)
-def get_organization(org_id: int, db: Session = Depends(get_db)):
-
-    db_org = db.query(Organization).options(
+async def get_organization(org_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Organization).options(
         joinedload(Organization.building),
         joinedload(Organization.activities)
-    ).filter(Organization.id == org_id).first()
+    ).filter(Organization.id == org_id)
+    
+    result = await db.execute(stmt)
+    db_org = result.unique().scalar_one_or_none()
 
     if db_org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -44,31 +51,36 @@ def get_organization(org_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/search/name", response_model=List[OrganizationSchema])
-def search_organizations_by_name(
+async def search_organizations_by_name(
     name: str = Query(..., min_length=1),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    organizations = db.query(Organization).options(
+    stmt = select(Organization).options(
         joinedload(Organization.building),
         joinedload(Organization.activities)
-    ).filter(Organization.name.ilike(f"%{name}%")).all()
-
+    ).filter(Organization.name.ilike(f"%{name}%"))
+    
+    result = await db.execute(stmt)
+    organizations = result.unique().scalars().all()
     return organizations
 
 
 @router.post("/", response_model=OrganizationSchema, status_code=status.HTTP_201_CREATED)
-def create_organization(
+async def create_organization(
     organization: OrganizationCreate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     try:
-        building = db.query(Building).filter(Building.id == organization.building_id).first()
+        building_stmt = select(Building).filter(Building.id == organization.building_id)
+        building_result = await db.execute(building_stmt)
+        building = building_result.scalar_one_or_none()
+        
         if not building:
             raise ValueError("Building not found")
         
-        activities = db.query(Activity).filter(
-            Activity.id.in_(organization.activity_ids)
-        ).all()
+        activities_stmt = select(Activity).filter(Activity.id.in_(organization.activity_ids))
+        activities_result = await db.execute(activities_stmt)
+        activities = activities_result.scalars().all()
         
         if len(activities) != len(organization.activity_ids):
             raise ValueError("One or more activities not found")
@@ -76,67 +88,78 @@ def create_organization(
         db_organization = Organization(
             name=organization.name,
             phone_numbers=organization.phone_numbers,
-            building_id=organization.building_id
+            building_id=organization.building_id,
+            activities=activities
         )
         
         db.add(db_organization)
-        db.commit()
-        db.refresh(db_organization)
-
-        db_organization.activities = activities
-        db.commit()
-        db.refresh(db_organization)
+        await db.commit()
+        await db.refresh(db_organization)
+        await db.refresh(db_organization, attribute_names=["activities", "building"])
         
         return db_organization
 
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/building/{building_id}", response_model=List[OrganizationSchema])
-def get_organizations_by_building(building_id: int, db: Session = Depends(get_db)):
-    organizations = db.query(Organization).options(
+async def get_organizations_by_building(building_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Organization).options(
         joinedload(Organization.building),
         joinedload(Organization.activities)
-    ).filter(Organization.building_id == building_id).all()
-
+    ).filter(Organization.building_id == building_id)
+    
+    result = await db.execute(stmt)
+    organizations = result.unique().scalars().all()
     return organizations
 
 
-def get_descendant_ids(db: Session, activity_id: int) -> List[int]:
-    activity = db.query(Activity).filter(Activity.id == activity_id).first()
+async def get_descendant_ids(db: AsyncSession, activity_id: int) -> List[int]:
+    activity_stmt = select(Activity).filter(Activity.id == activity_id)
+    activity_result = await db.execute(activity_stmt)
+    activity = activity_result.scalar_one_or_none()
+    
     if not activity:
         return []
     
     ids = [activity_id]
     
-    def get_child_ids(parent_id):
-        children = db.query(Activity).filter(Activity.parent_id == parent_id).all()
+    async def get_child_ids(parent_id: int):
+        children_stmt = select(Activity).filter(Activity.parent_id == parent_id)
+        children_result = await db.execute(children_stmt)
+        children = children_result.scalars().all()
+        
         for child in children:
             ids.append(child.id)
-            get_child_ids(child.id)
+            await get_child_ids(child.id)
     
-    get_child_ids(activity_id)
+    await get_child_ids(activity_id)
     return ids
 
 
 @router.get("/activity/{activity_id}", response_model=List[OrganizationSchema])
-def get_organizations_by_activity(activity_id: int, db: Session = Depends(get_db)):
+async def get_organizations_by_activity(activity_id: int, db: AsyncSession = Depends(get_db)):
+    descendant_ids = await get_descendant_ids(db, activity_id)
     
-    descendant_ids = get_descendant_ids(db, activity_id)
+    if not descendant_ids:
+        return []
     
-    organizations = db.query(Organization).options(
+    stmt = select(Organization).options(
         joinedload(Organization.building),
         joinedload(Organization.activities)
-    ).join(Organization.activities).filter(Activity.id.in_(descendant_ids)).all()
+    ).join(Organization.activities).filter(Activity.id.in_(descendant_ids))
     
+    result = await db.execute(stmt)
+    organizations = result.unique().scalars().all()
     return organizations
 
 
 @router.post("/search/geo", response_model=List[OrganizationSchema])
-def search_organizations_by_geo(
+async def search_organizations_by_geo(
     geo_search: GeoSearch,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    organizations = OrganizationHandler.search_organizations_by_geo(db, geo_search=geo_search)
+    organizations = await OrganizationHandler.search_organizations_by_geo(db, geo_search=geo_search)
     return organizations

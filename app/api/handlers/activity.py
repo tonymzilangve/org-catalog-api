@@ -1,5 +1,6 @@
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.db.models import Activity
 from app.api.schemas import ActivityCreate
@@ -8,14 +9,18 @@ from app.api.schemas import ActivityCreate
 class ActivityHandler:
     
     @staticmethod
-    def create_activity(
-        db: Session,
+    async def create_activity(
+        db: AsyncSession,
         activity: ActivityCreate
     ):
         try:
             level = 0
             if activity.parent_id:
-                parent = db.query(Activity).filter(Activity.id == activity.parent_id).first()
+                result = await db.execute(
+                    select(Activity).filter(Activity.id == activity.parent_id)
+                )
+                parent = result.scalar_one_or_none()
+                
                 if parent:
                     level = parent.level + 1
                     if level >= 3:
@@ -27,10 +32,11 @@ class ActivityHandler:
                 level=level
             )
             db.add(db_activity)
-            db.commit()
-            db.refresh(db_activity)
+            await db.commit()
+            await db.refresh(db_activity)
 
             return db_activity
 
         except ValueError as e:
+            await db.rollback()
             raise HTTPException(status_code=400, detail=str(e))

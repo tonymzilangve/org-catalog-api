@@ -1,6 +1,6 @@
 from math import asin, cos, radians, sin, sqrt
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
 from app.db.models import Building
 from app.api.schemas import BuildingCreate
@@ -9,8 +9,8 @@ from app.api.schemas import BuildingCreate
 class BuildingHandler:
     
     @staticmethod
-    def create_building(
-        db: Session,
+    async def create_building(
+        db: AsyncSession,
         building: BuildingCreate
     ):
         db_building = Building(
@@ -19,22 +19,24 @@ class BuildingHandler:
             longitude=building.longitude
         )
         db.add(db_building)
-        db.commit()
-        db.refresh(db_building)
+        await db.commit()
+        await db.refresh(db_building)
 
         return db_building
 
     @staticmethod
-    def search_buildings_in_radius(
-        db: Session, 
+    async def search_buildings_in_radius(
+        db: AsyncSession, 
         latitude: float, 
         longitude: float, 
         radius_km: float
     ):
         R = 6371  # Earth radius (km)
+
+        result = await db.execute(select(Building))
+        buildings = result.scalars().all()
         
-        buildings = db.query(Building).all()
-        result = []
+        filtered_buildings = []
         
         for building in buildings:
             lat1, lon1 = radians(latitude), radians(longitude)
@@ -48,21 +50,24 @@ class BuildingHandler:
             distance = R * c
             
             if distance <= radius_km:
-                result.append(building)
+                filtered_buildings.append(building)
         
-        return result
+        return filtered_buildings
     
     @staticmethod
-    def search_buildings_in_rectangle(
-        db: Session,
+    async def search_buildings_in_rectangle(
+        db: AsyncSession,
         north: float,
         south: float,
         east: float,
         west: float
     ):
-        return db.query(Building).filter(
+        stmt = select(Building).where(
             and_(
                 Building.latitude.between(south, north),
                 Building.longitude.between(west, east)
             )
-        ).all()
+        )
+        
+        result = await db.execute(stmt)
+        return result.scalars().all()
