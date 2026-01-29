@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 
 from app.api.schemas import BuildingSchema, BuildingCreate
@@ -15,18 +16,22 @@ router = APIRouter(
 
 
 @router.get("/", response_model=List[BuildingSchema])
-def list_buildings(
+async def list_buildings(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    buildings = db.query(Building).offset(skip).limit(limit).all()
+    stmt = select(Building).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    buildings = result.scalars().all()
     return buildings
 
 
 @router.get("/{building_id}", response_model=BuildingSchema)
-def get_building(building_id: int, db: Session = Depends(get_db)):
-    db_building = db.query(Building).filter(Building.id == building_id).first()
+async def get_building(building_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Building).filter(Building.id == building_id)
+    result = await db.execute(stmt)
+    db_building = result.scalar_one_or_none()
 
     if db_building is None:
         raise HTTPException(status_code=404, detail="Building not found")
@@ -35,9 +40,9 @@ def get_building(building_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=BuildingSchema, status_code=status.HTTP_201_CREATED)
-def create_building(
+async def create_building(
     building: BuildingCreate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     db_building = Building(
         address=building.address,
@@ -45,7 +50,7 @@ def create_building(
         longitude=building.longitude
     )
     db.add(db_building)
-    db.commit()
-    db.refresh(db_building)
+    await db.commit()
+    await db.refresh(db_building)
 
     return db_building

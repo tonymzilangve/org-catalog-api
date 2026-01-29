@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import joinedload, Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from typing import List
 
 from app.api.schemas import ActivitySchema, ActivityCreate
@@ -15,24 +17,36 @@ router = APIRouter(
 
 
 @router.get("/", response_model=List[ActivitySchema])
-def list_activities(
+async def list_activities(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
-):
-    activities = db.query(Activity).filter(
+    db: AsyncSession = Depends(get_db)
+    ):
+    stmt = select(Activity).options(
+        joinedload(Activity.children).joinedload(
+            Activity.children
+        ).joinedload(Activity.children)
+    ).filter(
         Activity.parent_id.is_(None)
-    ).offset(skip).limit(limit).all()
-
+    ).offset(skip).limit(limit)
+    
+    result = await db.execute(stmt)
+    activities = result.unique().scalars().all()
+    
     return activities
 
 
 @router.get("/{activity_id}", response_model=ActivitySchema)
-def get_activity(activity_id: int, db: Session = Depends(get_db)):
-    db_activity = db.query(Activity).options(
-        joinedload(Activity.children)
-    ).filter(Activity.id == activity_id).first()
-
+async def get_activity(activity_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Activity).options(
+        joinedload(Activity.children).joinedload(
+            Activity.children
+        ).joinedload(Activity.children)
+    ).filter(Activity.id == activity_id)
+    
+    result = await db.execute(stmt)
+    db_activity = result.unique().scalar_one_or_none()
+    
     if db_activity is None:
         raise HTTPException(status_code=404, detail="Activity not found")
 
@@ -40,29 +54,35 @@ def get_activity(activity_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=ActivitySchema, status_code=status.HTTP_201_CREATED)
-def create_activity(
+async def create_activity(
     activity: ActivityCreate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     try:
         level = 0
         if activity.parent_id:
-            parent = db.query(Activity).filter(Activity.id == activity.parent_id).first()
+            parent_stmt = select(Activity).filter(Activity.id == activity.parent_id)
+            parent_result = await db.execute(parent_stmt)
+            parent = parent_result.scalar_one_or_none()
+            
             if parent:
                 level = parent.level + 1
                 if level >= 3:
                     raise ValueError("Maximum nesting level is 3")
-        
+
         db_activity = Activity(
             name=activity.name,
             parent_id=activity.parent_id,
             level=level
         )
         db.add(db_activity)
-        db.commit()
-        db.refresh(db_activity)
+        await db.commit()
+        await db.refresh(db_activity)
+
+        await db.refresh(db_activity, attribute_names=["children"])
 
         return db_activity
 
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

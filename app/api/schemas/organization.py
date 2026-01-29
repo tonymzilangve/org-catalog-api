@@ -2,7 +2,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-from .activity import Activity
+from .activity import ActivitySimpleSchema
 from .building import Building
 
 
@@ -14,7 +14,7 @@ class OrganizationBase(BaseModel):
 
 class Organization(OrganizationBase):
     id: int
-    activities: List[Activity] = []
+    activities: List[ActivitySimpleSchema] = []
     building: Building
     
     class Config:

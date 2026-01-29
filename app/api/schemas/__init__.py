@@ -1,6 +1,7 @@
 from .activity import (
     Activity as ActivitySchema,
     ActivityCreate,
+    ActivitySimpleSchema
 )
 
 from .building import (
@@ -18,6 +19,7 @@ from .organization import (
 __all__ = [
     "ActivityCreate",
     "ActivitySchema",
+    "ActivitySimpleSchema",
     "BuildingCreate",
     "BuildingSchema",
     "GeoSearch",

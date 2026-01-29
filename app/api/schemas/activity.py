@@ -7,13 +7,18 @@ class ActivityBase(BaseModel):
     parent_id: int | None = None
 
 
-class Activity(ActivityBase):
+class ActivitySimpleSchema(ActivityBase):
     id: int
-    level: int
-    children: List['Activity'] = []
+    name: str
     
     class Config:
         from_attributes = True
+
+
+class Activity(ActivitySimpleSchema):
+    parent_id: Optional[int] = None
+    level: int
+    children: List['Activity'] = []
 
 
 class ActivityCreate(ActivityBase):
