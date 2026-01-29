@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import joinedload, Session
 from typing import List, Optional
 
-from app.api.handlers.organisation import OrganizationHandler
+from app.api.handlers.organization import OrganizationHandler
 from app.api.schemas import GeoSearch, OrganizationSchema, OrganizationCreate
 from app.core.dependencies import verify_api_key
 from app.db import get_db
