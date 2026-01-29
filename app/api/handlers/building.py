@@ -1,12 +1,29 @@
 from math import asin, cos, radians, sin, sqrt
-
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.db.models import Building
+from app.api.schemas import BuildingCreate
 
 
 class BuildingHandler:
+    
+    @staticmethod
+    def create_building(
+        db: Session,
+        building: BuildingCreate
+    ):
+        db_building = Building(
+            address=building.address,
+            latitude=building.latitude,
+            longitude=building.longitude
+        )
+        db.add(db_building)
+        db.commit()
+        db.refresh(db_building)
+
+        return db_building
+
     @staticmethod
     def search_buildings_in_radius(
         db: Session, 
@@ -14,8 +31,7 @@ class BuildingHandler:
         longitude: float, 
         radius_km: float
     ):
-        # Haversine formula for distance calculation
-        R = 6371  # Earth's radius in kilometers
+        R = 6371  # Earth radius (km)
         
         buildings = db.query(Building).all()
         result = []

@@ -4,7 +4,7 @@ from typing import List, Optional
 
 class ActivityBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    parent_id: int | None
+    parent_id: int | None = None
 
 
 class Activity(ActivityBase):
